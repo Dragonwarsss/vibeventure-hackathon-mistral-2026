@@ -1,35 +1,61 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { useEffect, useRef, useState } from 'react';
+import { Game } from './game/Game';
+import type { NPCInfo } from './game/types';
+import { DialogueBox } from './components/DialogueBox';
+import { InteractionHint } from './components/InteractionHint';
+import { LoadingScreen } from './components/LoadingScreen';
+import './index.css';
 
-function App() {
-  const [count, setCount] = useState(0)
+export default function App() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const gameRef = useRef<Game | null>(null);
+
+  const [nearbyNPC, setNearbyNPC] = useState<NPCInfo | null>(null);
+  const [dialogueNPC, setDialogueNPC] = useState<NPCInfo | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [showLoading, setShowLoading] = useState(true);
+
+  // Remove loading screen from DOM after fade-out animation
+  useEffect(() => {
+    if (loaded) {
+      const t = setTimeout(() => setShowLoading(false), 600);
+      return () => clearTimeout(t);
+    }
+  }, [loaded]);
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
+
+    const game = new Game(canvasRef.current, {
+      onNPCNearby: setNearbyNPC,
+      onNPCInteract: (npc) => {
+        setDialogueNPC(npc);
+        gameRef.current?.setInputPaused(true);
+      },
+      onReady: () => setLoaded(true),
+    });
+    gameRef.current = game;
+
+    return () => {
+      game.destroy();
+      gameRef.current = null;
+    };
+  }, []);
+
+  const handleDialogueClose = () => {
+    setDialogueNPC(null);
+    gameRef.current?.setInputPaused(false);
+  };
 
   return (
     <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
+      <canvas ref={canvasRef} />
+      {!dialogueNPC && <InteractionHint npc={nearbyNPC} />}
+      {dialogueNPC && <DialogueBox npc={dialogueNPC} onClose={handleDialogueClose} />}
+      {!dialogueNPC && (
+        <div id="controls-hint">ZQSD · WASD pour se déplacer · E pour parler</div>
+      )}
+      {showLoading && <LoadingScreen done={loaded} />}
     </>
-  )
+  );
 }
-
-export default App

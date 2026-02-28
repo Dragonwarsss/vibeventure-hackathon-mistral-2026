@@ -1,0 +1,96 @@
+import * as THREE from 'three';
+import { World } from './World';
+import { Player } from './Player';
+import { ThirdPersonCamera } from './ThirdPersonCamera';
+import { InputManager } from './InputManager';
+import { CollisionSystem } from './CollisionSystem';
+import { NPCManager } from './NPCManager';
+import { AudioManager } from './AudioManager';
+import type { GameCallbacks } from './types';
+
+export class Game {
+  private readonly renderer: THREE.WebGLRenderer;
+  private readonly scene: THREE.Scene;
+  private readonly camera: THREE.PerspectiveCamera;
+  private readonly clock: THREE.Clock;
+
+  private readonly collision: CollisionSystem;
+  private readonly input: InputManager;
+  private readonly player: Player;
+  private readonly thirdPersonCamera: ThirdPersonCamera;
+  private readonly npcManager: NPCManager;
+  private readonly audio = new AudioManager();
+
+  private rafId = 0;
+
+  // Start audio on first user gesture (browser autoplay policy)
+  private readonly onFirstInteraction = () => {
+    this.audio.start();
+  };
+
+  constructor(canvas: HTMLCanvasElement, callbacks: GameCallbacks) {
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x87ceeb);
+    this.scene.fog = new THREE.Fog(0x87ceeb, 40, 120);
+
+    this.camera = new THREE.PerspectiveCamera(
+      60,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      500
+    );
+    this.clock = new THREE.Clock();
+
+    this.collision = new CollisionSystem();
+    this.input = new InputManager();
+    new World(this.scene, this.collision);
+    this.player = new Player(this.scene);
+    this.thirdPersonCamera = new ThirdPersonCamera(this.camera);
+    this.npcManager = new NPCManager(this.scene, callbacks);
+
+    window.addEventListener('resize', this.onResize);
+    window.addEventListener('keydown', this.onFirstInteraction, { once: true });
+    window.addEventListener('pointerdown', this.onFirstInteraction, { once: true });
+
+    this.loop();
+
+    // Signal ready after first render (gives loading screen time to display)
+    setTimeout(() => callbacks.onReady?.(), 1200);
+  }
+
+  setInputPaused(paused: boolean): void {
+    this.input.setPaused(paused);
+  }
+
+  private loop = (): void => {
+    this.rafId = requestAnimationFrame(this.loop);
+    const delta = Math.min(this.clock.getDelta(), 0.1);
+
+    this.player.update(delta, this.input, this.camera, this.collision);
+    this.thirdPersonCamera.update(this.player.mesh, delta);
+    this.npcManager.update(this.player.mesh.position, this.input, delta);
+    this.renderer.render(this.scene, this.camera);
+  };
+
+  private onResize = (): void => {
+    this.camera.aspect = window.innerWidth / window.innerHeight;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+  };
+
+  destroy(): void {
+    cancelAnimationFrame(this.rafId);
+    window.removeEventListener('resize', this.onResize);
+    window.removeEventListener('keydown', this.onFirstInteraction);
+    window.removeEventListener('pointerdown', this.onFirstInteraction);
+    this.input.destroy();
+    this.audio.stop();
+    this.renderer.dispose();
+  }
+}
