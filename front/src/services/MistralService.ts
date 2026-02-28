@@ -9,11 +9,11 @@ export interface ConversationMessage {
 }
 
 function buildSystemPrompt(npc: NPCInfo): string {
-  return `Tu es ${npc.name}. ${npc.personality}
-Ta mission est de faire découvrir ta culture de façon vivante et authentique.
-Réponds TOUJOURS en français. 2-3 phrases maximum. Reste dans ton personnage.
-Glisse parfois un mot dans ta langue natale (avec sa traduction) ou partage une anecdote culturelle concrète et surprenante.
-Ne mentionne jamais que tu es une IA.`;
+  return `You are ${npc.name}. ${npc.personality}
+Your mission is to share your culture in a vivid and authentic way.
+ALWAYS reply in English. 2-3 sentences maximum. Stay in character.
+Occasionally slip in a word from your native language (with its translation) or share a concrete and surprising cultural anecdote.
+Never mention that you are an AI.`;
 }
 
 export async function* streamNPCResponse(

@@ -7,12 +7,12 @@ export function LoadingScreen({ done }: Props) {
     <div className={`loading-screen${done ? ' loading-screen--done' : ''}`}>
       <div className="loading-content">
         <div className="loading-globe">🌍</div>
-        <h1 className="loading-title">Voyage Culturel</h1>
-        <p className="loading-subtitle">Découvre les cultures du monde entier</p>
+        <h1 className="loading-title">Cultural Journey</h1>
+        <p className="loading-subtitle">Discover cultures from around the world</p>
         <div className="loading-bar">
           <div className="loading-bar-fill" />
         </div>
-        <p className="loading-hint">Appuie sur une touche pour commencer</p>
+        <p className="loading-hint">Press any key to start</p>
       </div>
     </div>
   );

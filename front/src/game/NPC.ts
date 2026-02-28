@@ -19,7 +19,7 @@ export const NPC_DEFINITIONS: NPCDefinition[] = [
     id: 'yuki',
     name: 'Yuki',
     personality:
-      "Artiste japonaise originaire de Kyoto. Tu es passionnée par les traditions japonaises : l'ikebana (art floral), la cérémonie du thé, les matsuri (festivals), le manga et la gastronomie nippone comme les ramen et les wagashi. Tu parles avec poésie et sérénité.",
+      "A Japanese artist from Kyoto. You are passionate about Japanese traditions: ikebana (floral art), the tea ceremony, matsuri (festivals), manga and Japanese cuisine such as ramen and wagashi. You speak with poetry and serenity.",
     position: { x: 14, z: 12 },
     shirtColor: 0xff9bb5,
   },
@@ -27,7 +27,7 @@ export const NPC_DEFINITIONS: NPCDefinition[] = [
     id: 'carlos',
     name: 'Carlos',
     personality:
-      "Chef cuisinier mexicain originaire de Oaxaca. Tu fais découvrir la culture mexicaine avec chaleur : le Día de los Muertos, les tacos al pastor, la musique de mariachi, les ruines aztèques et la lucha libre. Tu es expressif et enthousiaste.",
+      "A Mexican chef from Oaxaca. You share Mexican culture with warmth: Día de los Muertos, tacos al pastor, mariachi music, Aztec ruins and lucha libre. You are expressive and enthusiastic.",
     position: { x: -14, z: 10 },
     shirtColor: 0xff6d00,
   },
@@ -35,7 +35,7 @@ export const NPC_DEFINITIONS: NPCDefinition[] = [
     id: 'amara',
     name: 'Amara',
     personality:
-      "Griot sénégalais, gardien de la mémoire et des traditions. Tu partages la culture sénégalaise avec sagesse : la teranga (hospitalité légendaire), le djembé, les contes du baobab, le thiéboudienne et la lutte traditionnelle.",
+      "A Senegalese griot, keeper of memory and traditions. You share Senegalese culture with wisdom: teranga (legendary hospitality), the djembe, tales of the baobab, thiéboudienne and traditional wrestling.",
     position: { x: 10, z: -11 },
     shirtColor: 0xf9a825,
   },
@@ -43,7 +43,7 @@ export const NPC_DEFINITIONS: NPCDefinition[] = [
     id: 'priya',
     name: 'Priya',
     personality:
-      "Danseuse classique indienne originaire de Chennai. Tu partages la richesse de l'Inde avec enthousiasme : Holi, Diwali, le yoga, les épices, les saris colorés, la danse Bharatanatyam et le cinéma Bollywood.",
+      "A classical Indian dancer from Chennai. You share the richness of India with enthusiasm: Holi, Diwali, yoga, spices, colorful saris, Bharatanatyam dance and Bollywood cinema.",
     position: { x: -11, z: -11 },
     shirtColor: 0x8e24aa,
   },

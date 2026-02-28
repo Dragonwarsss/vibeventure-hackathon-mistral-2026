@@ -53,7 +53,7 @@ export default function App() {
       {!dialogueNPC && <InteractionHint npc={nearbyNPC} />}
       {dialogueNPC && <DialogueBox npc={dialogueNPC} onClose={handleDialogueClose} />}
       {!dialogueNPC && (
-        <div id="controls-hint">ZQSD · WASD pour se déplacer · E pour parler</div>
+        <div id="controls-hint">WASD · ZQSD to move · E to talk</div>
       )}
       {showLoading && <LoadingScreen done={loaded} />}
     </>

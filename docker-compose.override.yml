@@ -1,0 +1,23 @@
+services:
+  back:
+    build:
+      context: ./back
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./back:/app
+      - /app/node_modules   # preserve container node_modules
+    environment:
+      NODE_ENV: development
+      CHOKIDAR_USEPOLLING: "true"   # file watching fiable sur macOS/Windows
+
+  front:
+    build:
+      context: ./front
+      dockerfile: Dockerfile.dev
+    ports:
+      - "5173:5173"   # dev: Vite sur 5173 (prod: nginx sur 80)
+    volumes:
+      - ./front:/app
+      - /app/node_modules   # preserve container node_modules
+    environment:
+      NODE_ENV: development

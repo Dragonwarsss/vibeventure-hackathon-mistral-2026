@@ -13,7 +13,7 @@ interface Props {
   onClose: () => void;
 }
 
-const GREETING_TRIGGER = "[Le joueur s'approche de toi. Accueille-le chaleureusement en français, présente-toi et donne-lui envie de découvrir ta culture. 1-2 phrases seulement.]";
+const GREETING_TRIGGER = "[The player approaches you. Warmly greet them in English, introduce yourself and make them want to discover your culture. 1-2 sentences only.]";
 
 export function DialogueBox({ npc, onClose }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -38,7 +38,7 @@ export function DialogueBox({ npc, onClose }: Props) {
     if (!apiKey) {
       setMessages((prev) => [
         ...prev,
-        { role: 'npc', content: '⚠️ Clé API manquante : ajoute VITE_MISTRAL_API_KEY dans .env.local' },
+        { role: 'npc', content: '⚠️ API key missing: add VITE_MISTRAL_API_KEY to .env.local' },
       ]);
       return;
     }
@@ -65,7 +65,7 @@ export function DialogueBox({ npc, onClose }: Props) {
       if (mountedRef.current) {
         setMessages((prev) => {
           const copy = [...prev];
-          copy[copy.length - 1] = { role: 'npc', content: `Erreur : ${String(err)}` };
+          copy[copy.length - 1] = { role: 'npc', content: `Error: ${String(err)}` };
           return copy;
         });
       }
@@ -111,7 +111,7 @@ export function DialogueBox({ npc, onClose }: Props) {
       <div className="dialogue-box" onKeyDown={handleKeyDown}>
         <div className="dialogue-header">
           <span className="dialogue-npc-name">{npc.name}</span>
-          <button className="dialogue-close" onClick={onClose} aria-label="Fermer">
+          <button className="dialogue-close" onClick={onClose} aria-label="Close">
             ✕
           </button>
         </div>
@@ -120,7 +120,7 @@ export function DialogueBox({ npc, onClose }: Props) {
           {messages.map((msg, i) => (
             <div key={i} className={`dialogue-msg dialogue-msg-${msg.role}`}>
               <span className="dialogue-msg-label">
-                {msg.role === 'npc' ? npc.name : 'Toi'}
+                {msg.role === 'npc' ? npc.name : 'You'}
               </span>
               <p>
                 {msg.content}
@@ -140,11 +140,11 @@ export function DialogueBox({ npc, onClose }: Props) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Écrire un message… (Entrée pour envoyer)"
+            placeholder="Type a message… (Enter to send)"
             disabled={isStreaming}
           />
           <button onClick={handleSend} disabled={isStreaming || !input.trim()}>
-            Envoyer
+            Send
           </button>
         </div>
       </div>

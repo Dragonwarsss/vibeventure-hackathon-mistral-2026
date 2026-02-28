@@ -11,7 +11,7 @@ export function InteractionHint({ npc }: Props) {
     <div className="interaction-hint">
       <span className="hint-npc-name">{npc.name}</span>
       <span className="hint-key">E</span>
-      <span>Parler</span>
+      <span>Talk</span>
     </div>
   );
 }

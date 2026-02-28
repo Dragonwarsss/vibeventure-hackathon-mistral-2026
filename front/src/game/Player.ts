@@ -6,6 +6,10 @@ import { PlayerAnimator } from './PlayerAnimator';
 
 const SPEED = 5;
 const PLAYER_RADIUS = 0.35;
+const TURN_SPEED = 10; // rad/s — increase for snappier turns
+
+const CHARACTER_URL = new URL('../assets/GLB/character-male-f.glb', import.meta.url).href;
+const COLORMAP_URL = new URL('../assets/GLB/Textures/colormap.png', import.meta.url).href;
 
 export class Player {
   readonly mesh: THREE.Group;
@@ -20,60 +24,35 @@ export class Player {
   private readonly nextPos = new THREE.Vector3();
 
   constructor(scene: THREE.Scene) {
-    this.mesh = this.buildProceduralMesh();
+    this.mesh = new THREE.Group();
     scene.add(this.mesh);
-    this.tryLoadGLTF();
+    this.loadCharacter();
   }
 
-  private buildProceduralMesh(): THREE.Group {
-    const group = new THREE.Group();
-
-    const body = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.28, 0.6, 4, 8),
-      new THREE.MeshStandardMaterial({ color: 0x5ba8e5 })
-    );
-    body.position.y = 0.72;
-    body.castShadow = true;
-    group.add(body);
-
-    const head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.28, 8, 8),
-      new THREE.MeshStandardMaterial({ color: 0xf5c6a0 })
-    );
-    head.position.y = 1.5;
-    head.castShadow = true;
-    group.add(head);
-
-    const eyeMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
-    for (const xOff of [-0.1, 0.1]) {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 6), eyeMat);
-      eye.position.set(xOff, 1.53, 0.25);
-      group.add(eye);
-    }
-
-    return group;
-  }
-
-  /**
-   * Tries to load /models/character.glb
-   * Place any humanoid GLB with idle + walk animations (e.g. from Mixamo)
-   * in front/public/models/character.glb — falls back silently if missing.
-   */
-  private async tryLoadGLTF(): Promise<void> {
+  private async loadCharacter(): Promise<void> {
     try {
       const loader = new GLTFLoader();
-      const gltf = await loader.loadAsync('/models/character.glb');
-
-      while (this.mesh.children.length > 0) this.mesh.remove(this.mesh.children[0]);
+      const gltf = await loader.loadAsync(CHARACTER_URL);
 
       const model = gltf.scene;
-      model.scale.setScalar(1); // Adjust for your model (Mixamo → 0.01)
+      model.scale.setScalar(1); // Ajuster si le modèle apparaît trop grand/petit
       this.mesh.add(model);
 
+      const texture = new THREE.TextureLoader().load(COLORMAP_URL);
+      texture.flipY = false; // GLTF requiert flipY = false
+      texture.colorSpace = THREE.SRGBColorSpace;
+
       model.traverse((child) => {
-        if ((child as THREE.Mesh).isMesh) {
-          child.castShadow = true;
-          child.receiveShadow = true;
+        if (!(child as THREE.Mesh).isMesh) return;
+        const mesh = child as THREE.Mesh;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const m of mats) {
+          if (m instanceof THREE.MeshStandardMaterial || m instanceof THREE.MeshBasicMaterial) {
+            m.map = texture;
+            m.needsUpdate = true;
+          }
         }
       });
 
@@ -82,9 +61,35 @@ export class Player {
         this.animator.play('idle');
       }
 
-      console.log('✅ character.glb loaded —', gltf.animations.length, 'animations');
-    } catch {
-      console.info('ℹ️  No character.glb — using procedural character');
+      console.log('✅ character-male-f.glb loaded —', gltf.animations.length, 'animations:', gltf.animations.map(a => a.name));
+    } catch (err) {
+      console.warn('⚠️ Failed to load GLB — using procedural character', err);
+      this.buildProceduralMesh();
+    }
+  }
+
+  private buildProceduralMesh(): void {
+    const body = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.28, 0.6, 4, 8),
+      new THREE.MeshStandardMaterial({ color: 0x5ba8e5 })
+    );
+    body.position.y = 0.72;
+    body.castShadow = true;
+    this.mesh.add(body);
+
+    const head = new THREE.Mesh(
+      new THREE.SphereGeometry(0.28, 8, 8),
+      new THREE.MeshStandardMaterial({ color: 0xf5c6a0 })
+    );
+    head.position.y = 1.5;
+    head.castShadow = true;
+    this.mesh.add(head);
+
+    const eyeMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+    for (const xOff of [-0.1, 0.1]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 6), eyeMat);
+      eye.position.set(xOff, 1.53, 0.25);
+      this.mesh.add(eye);
     }
   }
 
@@ -118,7 +123,10 @@ export class Player {
       this.moveDir.normalize();
       this.nextPos.copy(this.mesh.position).addScaledVector(this.moveDir, SPEED * delta);
       this.mesh.position.copy(collision.resolve(this.nextPos, PLAYER_RADIUS));
-      this.mesh.rotation.y = Math.atan2(this.moveDir.x, this.moveDir.z);
+
+      const targetAngle = Math.atan2(this.moveDir.x, this.moveDir.z);
+      const diff = Math.atan2(Math.sin(targetAngle - this.mesh.rotation.y), Math.cos(targetAngle - this.mesh.rotation.y));
+      this.mesh.rotation.y += diff * (1 - Math.exp(-TURN_SPEED * delta));
     }
 
     this.animator?.update(delta);
