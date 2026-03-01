@@ -1,10 +1,34 @@
 # vibeventure
 
-## Prérequis
+## Lancer le jeu (front uniquement)
+
+> Seul le front est nécessaire pour jouer.
+
+```bash
+cd front
+npm install
+npm run dev
+```
+
+Ouvre ensuite [http://localhost:5173](http://localhost:5173) dans ton navigateur.
+
+### Variable d'environnement requise
+
+Crée un fichier `front/.env.local` avec ta clé API Mistral :
+
+```env
+VITE_MISTRAL_API_KEY=your_mistral_api_key_here
+```
+
+---
+
+## Stack complète (Docker)
+
+### Prérequis
 
 - [Docker](https://docs.docker.com/get-docker/) + Docker Compose
 
-## Lancer le projet
+### Lancer
 
 ```bash
 docker compose up --build
@@ -17,7 +41,7 @@ docker compose up --build
 | Postgres | localhost:5432         |
 | Redis    | localhost:6379         |
 
-## Arrêter
+### Arrêter
 
 ```bash
 docker compose down
