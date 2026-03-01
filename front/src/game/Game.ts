@@ -15,6 +15,7 @@ export class Game {
   private readonly clock: THREE.Clock;
 
   private readonly collision: CollisionSystem;
+  private readonly world: World;
   private readonly input: InputManager;
   private readonly player: Player;
   private readonly thirdPersonCamera: ThirdPersonCamera;
@@ -49,7 +50,7 @@ export class Game {
 
     this.collision = new CollisionSystem();
     this.input = new InputManager();
-    new World(this.scene, this.collision);
+    this.world = new World(this.scene, this.collision);
     this.player = new Player(this.scene);
     this.thirdPersonCamera = new ThirdPersonCamera(this.camera);
     this.npcManager = new NPCManager(this.scene, callbacks);
@@ -72,6 +73,7 @@ export class Game {
     this.rafId = requestAnimationFrame(this.loop);
     const delta = Math.min(this.clock.getDelta(), 0.1);
 
+    this.world.update(delta);
     this.player.update(delta, this.input, this.camera, this.collision);
     this.thirdPersonCamera.update(this.player.mesh, delta);
     this.npcManager.update(this.player.mesh.position, this.input, delta);

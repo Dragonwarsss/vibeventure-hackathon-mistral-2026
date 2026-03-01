@@ -33,7 +33,7 @@ front/
 │   │   ├── CollisionSystem.ts    # Physique simplifiée (cercles + boîtes)
 │   │   ├── NPC.ts                # Classe NPC + définitions des 4 personnages
 │   │   ├── NPCManager.ts         # Spawn, proximité, interaction des NPCs
-│   │   ├── House.ts              # Génération d'une maison procédurale
+│   │   ├── House.ts              # Chargement GLB d'un bâtiment (async) + fallback procédural
 │   │   ├── Landmarks.ts          # Décors culturels (torii, pyramide, baobab…)
 │   │   ├── AudioManager.ts       # Ambiance sonore synthétisée (Web Audio API)
 │   │   └── types.ts              # Interfaces partagées du jeu
@@ -46,6 +46,14 @@ front/
 │   └── assets/
 │       ├── GLB/
 │       │   ├── character-male-f.glb   # Modèle 3D du joueur (~244 Ko)
+│       │   ├── tree_blocks.glb        # Arbre type blocks
+│       │   ├── tree_blocks_dark.glb   # Arbre type blocks (sombre)
+│       │   ├── tree_default.glb       # Arbre type default
+│       │   ├── tree_default_dark.glb  # Arbre type default (sombre)
+│       │   ├── building-type-g.glb    # Bâtiment Japon
+│       │   ├── building-type-h.glb    # Bâtiment Mexique
+│       │   ├── building-type-i.glb    # Bâtiment Sénégal
+│       │   ├── building-type-j.glb    # Bâtiment Inde
 │       │   └── Textures/
 │       │       └── colormap.png       # Texture UV du modèle joueur
 │       └── sound/
@@ -220,15 +228,14 @@ GameCallbacks { onNPCNearby, onNPCInteract, onReady? }
 ---
 
 ### `src/game/House.ts`
-**Génération d'une maison procédurale.**
+**Chargement d'un bâtiment GLB.** Remplace la géométrie procédurale.
 
 | Élément | Détail |
 |---|---|
-| Corps | `BoxGeometry(5, 3, 4)`, couleur personnalisable |
-| Toit | `ConeGeometry(3.9, 2.2, 4)` rouge, tourné 45° |
-| Porte | `BoxGeometry(0.9, 1.8, 0.1)` brun, face +z |
-| Fenêtres | 2 × `BoxGeometry(0.85, 0.85, 0.1)` bleu clair émissif |
-| Collision | `addBox(x, z, 2.7, 2.1)` dans le `CollisionSystem` |
+| Constructeur | `(scene, collision, x, z, glbUrl)` — plus de paramètre `wallColor` |
+| Chargement | `GLTFLoader.loadAsync(glbUrl)` en async, scale contrôlée par `HOUSE_SCALE = 1` |
+| Collision | `addBox(x, z, 2.7, 2.1)` ajouté **immédiatement** (synchrone), avant le chargement |
+| Fallback | `buildProceduralFallback()` si le GLB échoue (tronc + toit + porte + fenêtres) |
 
 ---
 

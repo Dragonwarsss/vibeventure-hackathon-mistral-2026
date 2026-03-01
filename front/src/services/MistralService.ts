@@ -11,7 +11,7 @@ export interface ConversationMessage {
 function buildSystemPrompt(npc: NPCInfo): string {
   return `You are ${npc.name}. ${npc.personality}
 Your mission is to share your culture in a vivid and authentic way.
-ALWAYS reply in English. 2-3 sentences maximum. Stay in character.
+ALWAYS reply in English, unless requested to speak in your local language. 2-3 sentences maximum. Stay in character.
 Occasionally slip in a word from your native language (with its translation) or share a concrete and surprising cultural anecdote.
 Never mention that you are an AI.`;
 }

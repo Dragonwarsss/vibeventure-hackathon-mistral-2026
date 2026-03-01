@@ -5,8 +5,11 @@ import { CollisionSystem } from './CollisionSystem';
 import { PlayerAnimator } from './PlayerAnimator';
 
 const SPEED = 5;
+const SPRINT_SPEED = 10;
 const PLAYER_RADIUS = 0.35;
-const TURN_SPEED = 10; // rad/s — increase for snappier turns
+const TURN_SPEED = 10;
+const JUMP_FORCE = 8;
+const GRAVITY = -20;
 
 const CHARACTER_URL = new URL('../assets/GLB/character-male-f.glb', import.meta.url).href;
 const COLORMAP_URL = new URL('../assets/GLB/Textures/colormap.png', import.meta.url).href;
@@ -15,7 +18,9 @@ export class Player {
   readonly mesh: THREE.Group;
 
   private animator: PlayerAnimator | null = null;
-  private isMoving = false;
+  private animState: 'idle' | 'walk' | 'sprint' | 'jump' = 'idle';
+  private verticalVelocity = 0;
+  private isGrounded = true;
 
   private readonly moveDir = new THREE.Vector3();
   private readonly camForward = new THREE.Vector3();
@@ -25,6 +30,7 @@ export class Player {
 
   constructor(scene: THREE.Scene) {
     this.mesh = new THREE.Group();
+    this.mesh.position.set(0, 0, 5); // spawn au sud de la fontaine
     scene.add(this.mesh);
     this.loadCharacter();
   }
@@ -112,17 +118,38 @@ export class Player {
     if (input.left) this.moveDir.sub(this.camRight);
     if (input.right) this.moveDir.add(this.camRight);
 
-    const moving = this.moveDir.lengthSq() > 0;
+    // --- Saut & gravité ---
+    if (input.consumeJump() && this.isGrounded) {
+      this.verticalVelocity = JUMP_FORCE;
+      this.isGrounded = false;
+    }
+    this.verticalVelocity += GRAVITY * delta;
+    this.mesh.position.y += this.verticalVelocity * delta;
+    if (this.mesh.position.y <= 0) {
+      this.mesh.position.y = 0;
+      this.verticalVelocity = 0;
+      this.isGrounded = true;
+    }
 
-    if (moving !== this.isMoving) {
-      this.isMoving = moving;
-      this.animator?.play(moving ? 'walk' : 'idle');
+    // --- Mouvement horizontal ---
+    const moving = this.moveDir.lengthSq() > 0;
+    const sprinting = moving && input.sprint;
+
+    // Jump prioritaire sur les autres états tant qu'en l'air
+    const newState = !this.isGrounded ? 'jump' : moving ? (sprinting ? 'sprint' : 'walk') : 'idle';
+
+    if (newState !== this.animState) {
+      this.animState = newState;
+      this.animator?.play(newState);
     }
 
     if (moving) {
       this.moveDir.normalize();
-      this.nextPos.copy(this.mesh.position).addScaledVector(this.moveDir, SPEED * delta);
-      this.mesh.position.copy(collision.resolve(this.nextPos, PLAYER_RADIUS));
+      const speed = sprinting ? SPRINT_SPEED : SPEED;
+      this.nextPos.copy(this.mesh.position).addScaledVector(this.moveDir, speed * delta);
+      const resolved = collision.resolve(this.nextPos, PLAYER_RADIUS);
+      resolved.y = this.mesh.position.y; // préserver la hauteur du saut
+      this.mesh.position.copy(resolved);
 
       const targetAngle = Math.atan2(this.moveDir.x, this.moveDir.z);
       const diff = Math.atan2(Math.sin(targetAngle - this.mesh.rotation.y), Math.cos(targetAngle - this.mesh.rotation.y));

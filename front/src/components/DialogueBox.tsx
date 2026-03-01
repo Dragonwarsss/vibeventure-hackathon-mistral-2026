@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { NPCInfo } from '../game/types';
 import { streamNPCResponse } from '../services/MistralService';
 import type { ConversationMessage } from '../services/MistralService';
+import { TTSStreamer } from '../services/ElevenLabsService';
 
 interface Message {
   role: 'user' | 'npc';
@@ -23,10 +24,13 @@ export function DialogueBox({ npc, onClose }: Props) {
   const historyRef = useRef<ConversationMessage[]>([]);
   const mountedRef = useRef(true);
   const greetedRef = useRef(false); // guards against React StrictMode double-invoke
+  const isSendingRef = useRef(false); // synchronous lock to prevent double-send
+  const ttsRef = useRef<TTSStreamer | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const apiKey = import.meta.env.VITE_MISTRAL_API_KEY as string | undefined;
+  const elevenlabsKey = import.meta.env.VITE_ELEVENLABS_API_KEY as string | undefined;
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -34,13 +38,20 @@ export function DialogueBox({ npc, onClose }: Props) {
 
   const streamResponse = useCallback(async () => {
     if (!mountedRef.current) return;
-    console.log('apiKey:', apiKey);
     if (!apiKey) {
       setMessages((prev) => [
         ...prev,
         { role: 'npc', content: '⚠️ API key missing: add VITE_MISTRAL_API_KEY to .env.local' },
       ]);
       return;
+    }
+
+    // Stop any previous TTS and start fresh for this response
+    ttsRef.current?.dispose();
+    if (elevenlabsKey && npc.voiceId) {
+      const tts = new TTSStreamer();
+      tts.start(npc.voiceId, elevenlabsKey, npc.voiceSettings);
+      ttsRef.current = tts;
     }
 
     setIsStreaming(true);
@@ -51,12 +62,14 @@ export function DialogueBox({ npc, onClose }: Props) {
       for await (const token of streamNPCResponse(npc, historyRef.current, apiKey)) {
         if (!mountedRef.current) break;
         fullContent += token;
+        ttsRef.current?.sendText(token);
         setMessages((prev) => {
           const copy = [...prev];
           copy[copy.length - 1] = { role: 'npc', content: fullContent };
           return copy;
         });
       }
+      ttsRef.current?.flush();
       historyRef.current = [
         ...historyRef.current,
         { role: 'assistant', content: fullContent },
@@ -72,7 +85,25 @@ export function DialogueBox({ npc, onClose }: Props) {
     } finally {
       if (mountedRef.current) setIsStreaming(false);
     }
-  }, [npc, apiKey]);
+  }, [npc, apiKey, elevenlabsKey]);
+
+  // Fermeture globale sur Escape (indépendamment du focus)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
+  // Dispose TTS only on final unmount — separate from streamResponse effect
+  // to avoid StrictMode intermediate cleanup killing the greeting stream
+  useEffect(() => {
+    return () => {
+      ttsRef.current?.dispose();
+      ttsRef.current = null;
+    };
+  }, []);
 
   // NPC greets automatically on open — greetedRef prevents double call in React StrictMode
   useEffect(() => {
@@ -90,12 +121,17 @@ export function DialogueBox({ npc, onClose }: Props) {
 
   const handleSend = async () => {
     const msg = input.trim();
-    if (!msg || isStreaming) return;
+    if (!msg || isSendingRef.current) return;
+    isSendingRef.current = true;
 
     setInput('');
     setMessages((prev) => [...prev, { role: 'user', content: msg }]);
     historyRef.current = [...historyRef.current, { role: 'user', content: msg }];
-    await streamResponse();
+    try {
+      await streamResponse();
+    } finally {
+      isSendingRef.current = false;
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

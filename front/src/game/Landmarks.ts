@@ -1,7 +1,31 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { CollisionSystem, convexHull } from './CollisionSystem';
+
+const CACTUS_URL = new URL('../assets/GLB/cactus_tall.glb', import.meta.url).href;
+const CACTUS_SCALE = 5;
+
+const RIVER_TILE_URL = new URL('../assets/GLB/river/ground_riverTile.glb', import.meta.url).href;
+
+const PATH_STRAIGHT_URL = new URL('../assets/GLB/paths/ground_pathStraight.glb', import.meta.url).href;
+const PATH_END_URL     = new URL('../assets/GLB/paths/ground_pathEnd.glb',      import.meta.url).href;
+
+const ROUTES: [number, number, number, number][] = [
+  [0,  2.5,  12,   9],   // → Japan
+  [0,  2.5, -12,   7],   // → Mexico
+  [0, -2.5,   8, -13],   // → Senegal
+  [0, -2.5,  -9, -13],   // → India
+];
+
+// Ponds: [x, z, radius] — exported so World.ts can cut matching holes in the ground
+export const POND_POSITIONS: [number, number, number][] = [
+  [8,  -6, 1.8],
+  [-15, -8, 1.8],
+  [3,   9, 1.8],
+];
 
 /** Adds all cultural decorations to the scene. */
-export function addCulturalLandmarks(scene: THREE.Scene): void {
+export function addCulturalLandmarks(scene: THREE.Scene, collision: CollisionSystem): void {
   addFountain(scene);
   addPaths(scene);
   addTorii(scene, 10, 10);
@@ -10,7 +34,7 @@ export function addCulturalLandmarks(scene: THREE.Scene): void {
   addIndianArch(scene, -8, -12);
   addCherryBlossomCluster(scene);
   addCactusCluster(scene);
-  addPonds(scene);
+  addPonds(scene, collision);
   addFlowerPatches(scene);
 }
 
@@ -51,23 +75,118 @@ function addFountain(scene: THREE.Scene): void {
 // ─── Stone Paths ─────────────────────────────────────────────────────────────
 
 function addPaths(scene: THREE.Scene): void {
-  const mat = new THREE.MeshStandardMaterial({ color: 0xb5a590, roughness: 0.92 });
-  const routes: [number, number, number, number][] = [
-    [0, 2.5, 12, 9],     // → Japon
-    [0, 2.5, -12, 7],    // → Mexique
-    [0, -2.5, 8, -13],   // → Sénégal
-    [0, -2.5, -9, -13],  // → Inde
-  ];
-  for (const [x1, z1, x2, z2] of routes) {
-    addStonePath(scene, x1, z1, x2, z2, mat);
+  loadPathModels(scene);
+}
+
+async function loadPathModels(scene: THREE.Scene): Promise<void> {
+  const loader = new GLTFLoader();
+  try {
+    const [straightGltf, endGltf] = await Promise.all([
+      loader.loadAsync(PATH_STRAIGHT_URL),
+      loader.loadAsync(PATH_END_URL),
+    ]);
+
+    const straightRoot = straightGltf.scene;
+    const endRoot      = endGltf.scene;
+
+    const straightBox  = new THREE.Box3().setFromObject(straightRoot);
+    const straightSize = new THREE.Vector3();
+    straightBox.getSize(straightSize);
+
+    const endBox  = new THREE.Box3().setFromObject(endRoot);
+    const endSize = new THREE.Vector3();
+    endBox.getSize(endSize);
+
+    // Raise path tiles slightly above ground to layer cleanly over grass tiles
+    const straightYOffset = -straightBox.max.y + 0.06;
+    const endYOffset      = -endBox.max.y      + 0.06;
+
+    // Tile lengths along the model's Z axis
+    const tileLength = straightSize.z;
+    const capLength  = endSize.z;
+
+    for (const [x1, z1, x2, z2] of ROUTES) {
+      const dx = x2 - x1, dz = z2 - z1;
+      const routeLength = Math.sqrt(dx * dx + dz * dz);
+      const angle = Math.atan2(dx, dz);
+      const ux = dx / routeLength, uz = dz / routeLength;
+
+      // Straight tiles start this many units *inside* the cap to close any
+      // model-edge gap (the GLB geometry rarely reaches the exact bounding-box edge).
+      const CAP_OVERLAP = 0.2;
+      const innerStart  = capLength - CAP_OVERLAP;
+      const innerLength = Math.max(0, routeLength - innerStart * 2);
+      const tileCount   = Math.max(1, Math.round(innerLength / tileLength));
+      const tileScaleZ  = innerLength > 0 ? innerLength / (tileCount * tileLength) : 1;
+
+      // Start cap — rotated 180° so its closed end faces outward
+      placePathTile(scene, endRoot, endBox, x1 + ux * capLength / 2, z1 + uz * capLength / 2, angle + Math.PI, endYOffset);
+
+      // Straight tiles — start CAP_OVERLAP units into the cap region
+      if (innerLength > 0) {
+        const step = innerLength / tileCount;
+        for (let i = 0; i < tileCount; i++) {
+          const dist = innerStart + (i + 0.5) * step;
+          placePathTile(scene, straightRoot, straightBox, x1 + ux * dist, z1 + uz * dist, angle, straightYOffset, tileScaleZ);
+        }
+      }
+
+      // End cap — aligned with the route direction
+      placePathTile(scene, endRoot, endBox, x2 - ux * capLength / 2, z2 - uz * capLength / 2, angle, endYOffset);
+    }
+  } catch (err) {
+    console.warn('⚠️ Failed to load path GLBs — using procedural paths', err);
+    const mat = new THREE.MeshStandardMaterial({ color: 0xb5a590, roughness: 0.92 });
+    for (const [x1, z1, x2, z2] of ROUTES) {
+      addStonePath(scene, x1, z1, x2, z2, mat);
+    }
   }
 }
 
+/**
+ * Places one path tile (straight or end cap) at the given world XZ centre.
+ * A THREE.Group handles the rotation so the pivot-offset compensation is
+ * straightforward: centre the clone inside the group, then rotate the group.
+ */
+function placePathTile(
+  scene: THREE.Scene,
+  root: THREE.Object3D,
+  box: THREE.Box3,
+  worldX: number,
+  worldZ: number,
+  angle: number,
+  yOffset: number,
+  scaleZ = 1,
+): void {
+  // Geometric centre of the model in its local XZ plane
+  const cx = (box.min.x + box.max.x) / 2;
+  const cz = (box.min.z + box.max.z) / 2;
+
+  const group = new THREE.Group();
+  group.position.set(worldX, 0, worldZ);
+  group.rotation.y = angle;
+
+  const clone = root.clone(true);
+  clone.scale.z = scaleZ;
+  // Compensate pivot offset; the Z centre shifts with the Z scale
+  clone.position.set(-cx, yOffset, -cz * scaleZ);
+
+  clone.traverse(child => {
+    if (!(child as THREE.Mesh).isMesh) return;
+    child.castShadow    = true;
+    child.receiveShadow = true;
+  });
+
+  group.add(clone);
+  scene.add(group);
+}
+
+/** Procedural fallback: a single flat box for the whole route. */
 function addStonePath(
   scene: THREE.Scene,
   x1: number, z1: number,
   x2: number, z2: number,
-  mat: THREE.Material
+  mat: THREE.Material,
 ): void {
   const dx = x2 - x1, dz = z2 - z1;
   const length = Math.sqrt(dx * dx + dz * dz);
@@ -206,57 +325,160 @@ function addCherryBlossomCluster(scene: THREE.Scene): void {
 // ─── Cactus Cluster (Mexico area) ────────────────────────────────────────────
 
 function addCactusCluster(scene: THREE.Scene): void {
-  // Placed outside Mexico house AABB: x [-16.7,-11.3], z [3.9,8.1]
-  const positions: [number, number][] = [[-17.5, 4], [-17, 8.5], [-12, 2.8]];
-  const mat = new THREE.MeshStandardMaterial({ color: 0x388e3c });
-  for (const [cx, cz] of positions) addCactus(scene, cx, cz, mat);
+  // +1 south vs original positions
+  const positions: [number, number][] = [[-17.5, 6], [-17, 10.5], [-12, 4.8]];
+  loadCactusModels(scene, positions);
 }
 
-function addCactus(scene: THREE.Scene, x: number, z: number, mat: THREE.Material): void {
-  const group = new THREE.Group();
-  group.position.set(x, 0, z);
+async function loadCactusModels(scene: THREE.Scene, positions: [number, number][]): Promise<void> {
+  const loader = new GLTFLoader();
+  try {
+    const gltf = await loader.loadAsync(CACTUS_URL);
+    const root = gltf.scene;
 
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.25, 2.6, 8), mat);
-  trunk.position.y = 1.3;
-  trunk.castShadow = true;
-  group.add(trunk);
-
-  // Left arm
-  const lH = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 1.1, 7), mat);
-  lH.rotation.z = -Math.PI / 2.2;
-  lH.position.set(-0.75, 1.4, 0);
-  group.add(lH);
-  const lV = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.9, 7), mat);
-  lV.position.set(-1.35, 2.0, 0);
-  group.add(lV);
-
-  // Right arm
-  const rH = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 0.9, 7), mat);
-  rH.rotation.z = Math.PI / 2.5;
-  rH.position.set(0.65, 1.1, 0);
-  group.add(rH);
-  const rV = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.8, 7), mat);
-  rV.position.set(1.2, 1.65, 0);
-  group.add(rV);
-
-  scene.add(group);
-}
-
-// ─── Decorative Ponds ────────────────────────────────────────────────────────
-
-function addPonds(scene: THREE.Scene): void {
-  const mat = new THREE.MeshStandardMaterial({ color: 0x1976d2, transparent: true, opacity: 0.78 });
-  const ponds: [number, number, number][] = [
-    [5, -6, 2.2],
-    [-5, -8, 1.8],
-    [3, 6, 2.5],
-  ];
-  for (const [px, pz, r] of ponds) {
-    const pond = new THREE.Mesh(new THREE.CircleGeometry(r, 20), mat);
-    pond.rotation.x = -Math.PI / 2;
-    pond.position.set(px, 0.02, pz);
-    scene.add(pond);
+    for (const [cx, cz] of positions) {
+      const clone = root.clone(true);
+      clone.position.set(cx, 0, cz);
+      clone.scale.setScalar(CACTUS_SCALE);
+      clone.traverse(child => {
+        if (!(child as THREE.Mesh).isMesh) return;
+        child.castShadow    = true;
+        child.receiveShadow = true;
+      });
+      scene.add(clone);
+    }
+  } catch (err) {
+    console.warn('⚠️ Failed to load cactus_tall.glb', err);
   }
+}
+
+// ─── Decorative Ponds (GLB river tile) ───────────────────────────────────────
+
+function addPonds(scene: THREE.Scene, collision: CollisionSystem): void {
+  loadPondModels(scene, collision);
+}
+
+async function loadPondModels(scene: THREE.Scene, collision: CollisionSystem): Promise<void> {
+  const loader = new GLTFLoader();
+
+  // Visible "pond floor" shown through the hole cut in the ground plane
+  const floorMat = new THREE.MeshStandardMaterial({ color: 0x1a3040, roughness: 0.95 });
+
+  try {
+    const gltf = await loader.loadAsync(RIVER_TILE_URL);
+    const root = gltf.scene;
+
+    const box = new THREE.Box3().setFromObject(root);
+    const modelSize = new THREE.Vector3();
+    box.getSize(modelSize);
+    const modelFootprint = Math.max(modelSize.x, modelSize.z);
+
+    // Offset needed to centre the model on its geometric centre, not its pivot
+    const pivotOffsetX = (box.min.x + box.max.x) / 2;
+    const pivotOffsetZ = (box.min.z + box.max.z) / 2;
+
+    for (const [px, pz, radius] of POND_POSITIONS) {
+      const scale = (radius * 2) / modelFootprint;
+
+      // Dark floor disc below ground — visible through the hole in the ground plane
+      const floor = new THREE.Mesh(new THREE.CircleGeometry(radius, 24), floorMat);
+      floor.rotation.x = -Math.PI / 2;
+      floor.position.set(px, -0.4, pz);
+      scene.add(floor);
+
+      // River tile: top rim sits 2 cm above y=0 so its square corners seal
+      // any sub-tile gap left by the AABB skip in the grass tile grid.
+      // Subtract the scaled pivot offset so the geometric centre aligns with (px, pz).
+      const clone = root.clone(true);
+      clone.scale.setScalar(scale);
+      clone.position.set(
+        px - pivotOffsetX * scale,
+        -box.max.y * scale + 0.02,
+        pz - pivotOffsetZ * scale,
+      );
+      clone.traverse((child) => {
+        if (!(child as THREE.Mesh).isMesh) return;
+        const mesh = child as THREE.Mesh;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+      });
+      scene.add(clone);
+
+      // Extract rim polygon from the actual GLB geometry and register as a
+      // polygon collider — far more precise than a simple circle approximation.
+      clone.updateMatrixWorld(true);
+      const rimPoints = extractRimPoints(clone);
+      const hull = convexHull(rimPoints);
+      if (hull.length >= 3) {
+        collision.addPolygon(hull);
+      } else {
+        collision.addCircle(px, pz, radius); // fallback
+      }
+    }
+  } catch (err) {
+    console.warn('⚠️ Failed to load ground_riverTile.glb — using procedural ponds', err);
+    const mat = new THREE.MeshStandardMaterial({ color: 0x1976d2, transparent: true, opacity: 0.78 });
+    for (const [px, pz, r] of POND_POSITIONS) {
+      const pond = new THREE.Mesh(new THREE.CircleGeometry(r, 20), mat);
+      pond.rotation.x = -Math.PI / 2;
+      pond.position.set(px, 0.02, pz);
+      scene.add(pond);
+      collision.addCircle(px, pz, r);
+    }
+  }
+}
+
+/**
+ * Extracts the INNER depression edge from the GLB — the actual drop-off ring
+ * that the player should not cross.
+ *
+ * At world Y ≈ 0, two rings of vertices coexist:
+ *   - Outer ring: the tile's walkable flat rim (max XZ extent → drives the hull outward)
+ *   - Inner ring: the top of the depression walls (closer to center)
+ *
+ * We keep only the inner ring by discarding points whose distance from the
+ * centroid is in the upper half of the observed range.
+ */
+function extractRimPoints(root: THREE.Group): { x: number; z: number }[] {
+  const all: { x: number; z: number }[] = [];
+  const v = new THREE.Vector3();
+
+  root.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh || !mesh.geometry?.attributes.position) return;
+    const pos = mesh.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      v.applyMatrix4(mesh.matrixWorld);
+      if (v.y > -0.2 && v.y < 0.1) {
+        all.push({ x: v.x, z: v.z });
+      }
+    }
+  });
+
+  if (all.length < 3) return all;
+
+  // Centroid of all rim vertices
+  const cx = all.reduce((s, p) => s + p.x, 0) / all.length;
+  const cz = all.reduce((s, p) => s + p.z, 0) / all.length;
+
+  // Sort by distance from centroid
+  const sorted = all
+    .map(p => ({ ...p, d: Math.sqrt((p.x - cx) ** 2 + (p.z - cz) ** 2) }))
+    .sort((a, b) => a.d - b.d);
+
+  // Find the largest gap between consecutive distances — this is the boundary
+  // between the inner depression ring and the outer flat rim of the tile.
+  let splitIdx = Math.floor(sorted.length * 0.45); // default: inner 45%
+  let maxGap = 0;
+  for (let i = 1; i < sorted.length; i++) {
+    const gap = sorted[i].d - sorted[i - 1].d;
+    if (gap > maxGap) { maxGap = gap; splitIdx = i; }
+  }
+
+  // Only trust the gap if it's significant (> 5 cm world units)
+  const inner = sorted.slice(0, splitIdx).map(p => ({ x: p.x, z: p.z }));
+  return inner.length >= 3 ? inner : all;
 }
 
 // ─── Flower Patches ──────────────────────────────────────────────────────────

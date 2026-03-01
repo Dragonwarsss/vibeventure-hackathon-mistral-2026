@@ -18,6 +18,8 @@ export class NPCManager {
     let closestDist = Infinity;
 
     for (const npc of this.npcs) {
+      npc.update(delta);
+
       const dist = playerPos.distanceTo(npc.group.position);
       const isNear = dist < npc.interactionRadius;
 
