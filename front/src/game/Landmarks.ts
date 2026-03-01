@@ -5,6 +5,9 @@ import { CollisionSystem, convexHull } from './CollisionSystem';
 const CACTUS_URL = new URL('../assets/GLB/cactus_tall.glb', import.meta.url).href;
 const CACTUS_SCALE = 5;
 
+const FOUNTAIN_GLB_URL = new URL('../assets/GLB/structures/fountain-round-detail.glb', import.meta.url).href;
+const FOUNTAIN_SCALE = 3;
+
 const RIVER_TILE_URL = new URL('../assets/GLB/river/ground_riverTile.glb', import.meta.url).href;
 
 const PATH_STRAIGHT_URL = new URL('../assets/GLB/paths/ground_pathStraight.glb', import.meta.url).href;
@@ -26,12 +29,12 @@ export const POND_POSITIONS: [number, number, number][] = [
 
 /** Adds all cultural decorations to the scene. */
 export function addCulturalLandmarks(scene: THREE.Scene, collision: CollisionSystem): void {
-  addFountain(scene);
+  addFountain(scene, collision);
   addPaths(scene);
-  addTorii(scene, 10, 10);
-  addPyramid(scene, -11, 2);
-  addBaobab(scene, 7, -12);
-  addIndianArch(scene, -8, -12);
+  // addTorii(scene, 10, 10);
+  // addPyramid(scene, -11, 2);
+  // addBaobab(scene, 7, -12);
+  // addIndianArch(scene, -8, -12);
   addCherryBlossomCluster(scene);
   addCactusCluster(scene);
   addPonds(scene, collision);
@@ -40,30 +43,85 @@ export function addCulturalLandmarks(scene: THREE.Scene, collision: CollisionSys
 
 // ─── Central Fountain ────────────────────────────────────────────────────────
 
-function addFountain(scene: THREE.Scene): void {
+function addFountain(scene: THREE.Scene, collision: CollisionSystem): void {
+  loadFountainModel(scene, collision);
+}
+
+async function loadFountainModel(scene: THREE.Scene, collision: CollisionSystem): Promise<void> {
+  const loader = new GLTFLoader();
+  try {
+    const gltf = await loader.loadAsync(FOUNTAIN_GLB_URL);
+    const model = gltf.scene;
+    model.scale.setScalar(FOUNTAIN_SCALE);
+
+    // Align the base of the model exactly with y=0 (ground plane)
+    const box = new THREE.Box3().setFromObject(model);
+    model.position.y = -box.min.y + 0.01;
+
+    model.traverse(child => {
+      if (!(child as THREE.Mesh).isMesh) return;
+      child.castShadow    = true;
+      child.receiveShadow = true;
+    });
+
+    scene.add(model);
+
+    model.updateMatrixWorld(true);
+    const footprint = extractFountainFootprint(model);
+    const hull = convexHull(footprint);
+    if (hull.length >= 3) {
+      collision.addPolygon(hull);
+    } else {
+      collision.addCircle(0, 0, 2.2);
+    }
+  } catch (err) {
+    console.warn('⚠️ Failed to load fountain-round-detail.glb — using procedural fallback', err);
+    buildProceduralFountain(scene);
+    collision.addCircle(0, 0, 2.2);
+  }
+}
+
+/** Extracts XZ footprint of the fountain near ground level for collision. */
+function extractFountainFootprint(root: THREE.Object3D): { x: number; z: number }[] {
+  const points: { x: number; z: number }[] = [];
+  const v = new THREE.Vector3();
+
+  root.traverse(child => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh || !mesh.geometry?.attributes.position) return;
+    const pos = mesh.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      v.applyMatrix4(mesh.matrixWorld);
+      if (v.y >= -0.1 && v.y <= 1.5) {
+        points.push({ x: v.x, z: v.z });
+      }
+    }
+  });
+
+  return points;
+}
+
+function buildProceduralFountain(scene: THREE.Scene): void {
   const stoneMat = new THREE.MeshStandardMaterial({ color: 0x9e9e9e, roughness: 0.85 });
   const waterMat = new THREE.MeshStandardMaterial({ color: 0x29b6f6, transparent: true, opacity: 0.75 });
 
-  // Basin ring
   const ring = new THREE.Mesh(new THREE.TorusGeometry(2, 0.32, 8, 32), stoneMat);
   ring.rotation.x = Math.PI / 2;
   ring.position.y = 0.22;
   ring.castShadow = true;
   scene.add(ring);
 
-  // Water surface
   const water = new THREE.Mesh(new THREE.CircleGeometry(1.75, 24), waterMat);
   water.rotation.x = -Math.PI / 2;
   water.position.y = 0.14;
   scene.add(water);
 
-  // Center pillar
   const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.26, 1.8, 8), stoneMat);
   pillar.position.y = 1.0;
   pillar.castShadow = true;
   scene.add(pillar);
 
-  // Globe on top (world symbol)
   const globe = new THREE.Mesh(
     new THREE.SphereGeometry(0.4, 14, 14),
     new THREE.MeshStandardMaterial({ color: 0x1565c0, emissive: 0x0d47a1, emissiveIntensity: 0.4 })

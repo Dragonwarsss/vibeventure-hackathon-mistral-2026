@@ -36,6 +36,9 @@ front/
 │   │   ├── House.ts              # Chargement GLB d'un bâtiment (async) + fallback procédural
 │   │   ├── Landmarks.ts          # Décors culturels (torii, pyramide, baobab…)
 │   │   ├── AudioManager.ts       # Ambiance sonore synthétisée (Web Audio API)
+│   │   ├── CoinManager.ts        # Spawn, physique et collecte des pièces
+│   │   ├── FountainManager.ts    # Interaction fontaine : jet de pièces + compteur 3D
+│   │   ├── NPCRewardManager.ts   # Animation arc NPC → joueur après dialogue
 │   │   └── types.ts              # Interfaces partagées du jeu
 │   ├── components/               # Composants React UI superposés au canvas
 │   │   ├── DialogueBox.tsx       # Fenêtre de dialogue avec streaming Mistral
@@ -50,12 +53,14 @@ front/
 │       │   ├── tree_blocks_dark.glb   # Arbre type blocks (sombre)
 │       │   ├── tree_default.glb       # Arbre type default
 │       │   ├── tree_default_dark.glb  # Arbre type default (sombre)
-│       │   ├── building-type-g.glb    # Bâtiment Japon
-│       │   ├── building-type-h.glb    # Bâtiment Mexique
-│       │   ├── building-type-i.glb    # Bâtiment Sénégal
-│       │   ├── building-type-j.glb    # Bâtiment Inde
+│       │   ├── buildings/
+│       │   │   ├── building-type-g.glb    # Bâtiment Japon
+│       │   │   ├── building-type-h.glb    # Bâtiment Mexique
+│       │   │   ├── building-type-i.glb    # Bâtiment Sénégal
+│       │   │   ├── building-type-j.glb    # Bâtiment Inde
+│       │   │   └── colormap.png           # Texture UV des bâtiments
 │       │   └── Textures/
-│       │       └── colormap.png       # Texture UV du modèle joueur
+│       │       └── colormap.png       # Texture UV du modèle joueur et NPCs
 │       └── sound/
 │           └── music/
 │               └── First Steps Field.mp3  # Musique (non intégrée actuellement)
@@ -224,6 +229,22 @@ GameCallbacks { onNPCNearby, onNPCInteract, onReady? }
 |---|---|
 | `constructor(scene, callbacks)` | Instancie les 4 NPCs depuis `NPC_DEFINITIONS` |
 | `update(playerPos, input, delta)` | Pour chaque NPC : calcule distance, highlight si proche, trouve le plus proche. Déclenche `onNPCNearby` si le NPC le plus proche change. Déclenche `onNPCInteract` si E est pressé près d'un NPC. |
+| `getNPCPosition(npcId)` | Retourne la position world (`THREE.Vector3`) du NPC correspondant, ou `null`. |
+
+---
+
+### `src/game/NPCRewardManager.ts`
+**Récompense en pièces après un dialogue NPC.**
+
+| Élément | Détail |
+|---|---|
+| `startReward(npcPos, playerPos, count)` | Lance `count` pièces en arc de la position NPC vers la position joueur. |
+| Arc Bézier | Courbe quadratique (NPC chest +1.5y → peak +2.5 → player chest +1y). Durée 0.65 s. |
+| Queue | Les pièces partent une par une toutes les 0.08 s. |
+| SFX | `item_pickup.mp3` joué à l'arrivée de chaque pièce. |
+| `setCoinTemplate(tpl)` | Reçoit le clone-source depuis `CoinManager.onTemplateReady`. |
+
+**Barème de récompense (défini dans `App.tsx`) :** 0 msg → 0 🪙, 1 msg → 2 🪙, 2 msg → 4 🪙, 3+ msg → 7 🪙.
 
 ---
 
@@ -254,6 +275,21 @@ GameCallbacks { onNPCNearby, onNPCInteract, onReady? }
 | `addCactusCluster(scene)` | 3 cactus autour de la maison Mexique |
 | `addPonds(scene)` | 3 mares décoratives semi-transparentes |
 | `addFlowerPatches(scene)` | 14 massifs de fleurs colorées émissives |
+
+---
+
+### `src/game/FountainManager.ts`
+**Interaction fontaine + animation de lancer de pièces.**
+
+| Élément | Détail |
+|---|---|
+| Proximité | Rayon `INTERACT_RADIUS = 4.0` autour de (0, 0, 0). Déclenche `onNearby(true/false)`. |
+| Touche E | Consommée uniquement si le joueur est proche et pas de lancer en cours → `onInteract()`. NPCManager ne consomme plus E quand aucun NPC n'est proche. |
+| `setCoinTemplate(tpl)` | Reçoit le clone-source depuis `CoinManager.onTemplateReady`. |
+| `startThrow(count)` | Met `count` pièces en queue. Chaque pièce part toutes les 0.35 s. |
+| Arc Bézier | Chaque pièce suit une courbe quadratique (start = joueur+1.2y, control = pic à +3.5, end = (0, 0.8, 0)). Durée 0.9 s. |
+| Compteur 3D | Sprite Three.js avec texture Canvas (`256×96`). Position (0, 6.5, 0). Affiche `X/20` avec disque or. S'actualise à chaque atterrissage. |
+| `onCoinLanded()` | Callback appelé à chaque atterrissage (non utilisé par App.tsx — le drain d'inventaire se fait dès le lancer). |
 
 ---
 
@@ -345,6 +381,9 @@ App.tsx (React UI)
 | Modifier le prompt NPC / comportement IA | `MistralService.ts` — `buildSystemPrompt()` |
 | Changer modèle Mistral / max_tokens | `MistralService.ts` — constantes `MODEL`, `max_tokens` |
 | Modifier la musique (volume, fichier) | `AudioManager.ts` — `MUSIC_URL`, `volume` |
+| Modifier l'interaction fontaine (rayon, vitesse, capacité) | `FountainManager.ts` — constantes `INTERACT_RADIUS`, `THROW_INTERVAL`, `ARC_DURATION`, `CAPACITY` |
+| Modifier le barème de récompense dialogue | `App.tsx` — tableau `DIALOGUE_REWARDS` |
+| Modifier l'animation récompense NPC (arc, durée, intervalle) | `NPCRewardManager.ts` — constantes `THROW_INTERVAL`, `ARC_DURATION`, `COIN_SPIN` |
 | Modifier l'UI de chargement | `LoadingScreen.tsx` + `index.css` |
 | Modifier le pont React ↔ Three.js | `App.tsx` + `types.ts` (callbacks) |
 | Modifier le renderer (ombres, antialiasing) | `Game.ts` — `constructor` |

@@ -4,6 +4,8 @@ import { CollisionSystem } from './CollisionSystem';
 import { House } from './House';
 import { addCulturalLandmarks, POND_POSITIONS } from './Landmarks';
 
+const WOOD_CHOP_SFX = new URL('../assets/sound/sound_effect/wood_chop.mp3', import.meta.url).href;
+
 const TREE_URLS = [
   new URL('../assets/GLB/tree_blocks.glb', import.meta.url).href,
   new URL('../assets/GLB/tree_blocks_dark.glb', import.meta.url).href,
@@ -44,35 +46,63 @@ const FENCE_GATE_URL    = new URL('../assets/GLB/fences/fence_gate.glb', import.
 const GROUND_GRASS_URL = new URL('../assets/GLB/ground_grass.glb', import.meta.url).href;
 
 const BUILDING_URLS = [
-  new URL('../assets/GLB/building-type-g.glb', import.meta.url).href, // Japon
-  new URL('../assets/GLB/building-type-h.glb', import.meta.url).href, // Mexique
-  new URL('../assets/GLB/building-type-i.glb', import.meta.url).href, // Sénégal
-  new URL('../assets/GLB/building-type-j.glb', import.meta.url).href, // Inde
+  new URL('../assets/GLB/buildings/building-type-g.glb', import.meta.url).href, // Japon
+  new URL('../assets/GLB/buildings/building-type-h.glb', import.meta.url).href, // Mexique
+  new URL('../assets/GLB/buildings/building-type-i.glb', import.meta.url).href, // Sénégal
+  new URL('../assets/GLB/buildings/building-type-j.glb', import.meta.url).href, // Inde
+  new URL('../assets/GLB/buildings/building-type-g.glb', import.meta.url).href, // France (réutilise le modèle g)
 ] as const;
 
 const HOUSE_POSITIONS = [
-  { x: 14,  z: 8,   glbUrl: BUILDING_URLS[0] }, // Japon
-  { x: -14, z: 6,   glbUrl: BUILDING_URLS[1] }, // Mexique
-  { x: 10,  z: -15, glbUrl: BUILDING_URLS[2] }, // Sénégal
-  { x: -11, z: -15, glbUrl: BUILDING_URLS[3] }, // Inde
+  { x: 14,  z: 8,   glbUrl: BUILDING_URLS[0], fountainLevel: 1 }, // Japon   — débloqué dès le début
+  { x: -14, z: 6,   glbUrl: BUILDING_URLS[1], fountainLevel: 2 }, // Mexique  — niveau 2
+  { x: 10,  z: -15, glbUrl: BUILDING_URLS[2], fountainLevel: 2 }, // Sénégal  — niveau 2
+  { x: -11, z: -15, glbUrl: BUILDING_URLS[3], fountainLevel: 1 }, // Inde     — débloqué dès le début
+  { x: 0,   z: -30, glbUrl: BUILDING_URLS[4], fountainLevel: 3 }, // France   — niveau 3
 ] as const;
 
+interface TreeEntry {
+  x: number;
+  z: number;
+  shakePhase: { value: number }; // SHAKE_DURATION → 0 quand l'arbre est touché
+}
+
+interface PendingHouse {
+  x: number;
+  z: number;
+  glbUrl: string;
+  delay: number; // seconds remaining before the house spawns
+}
+
+const SHAKE_DURATION = 0.8;
+const ATTACK_REACH   = 2.5;
+
 export class World {
+  /** Called for each tree that takes a hit. Coordinates are the tree's XZ position. */
+  onTreeHit?: (x: number, z: number) => void;
+
+  private readonly scene: THREE.Scene;
+  private readonly collision: CollisionSystem;
   private grassTime = 0;
   private readonly grassTimeUniforms: { value: number }[] = [];
   private readonly cropTimeUniforms:  { value: number }[] = [];
+  private readonly treeEntries: TreeEntry[] = [];
+  private readonly animatedHouses: House[] = [];
+  private readonly pendingHouses: PendingHouse[] = [];
 
   constructor(scene: THREE.Scene, collision: CollisionSystem) {
+    this.scene = scene;
+    this.collision = collision;
     this.createLights(scene);
     this.createGround(scene);
     this.createTrees(scene, collision);
     this.createGrass(scene);
     this.createGarden(scene, collision);
-    this.createHouses(scene, collision);
+    this.createHouses();
     addCulturalLandmarks(scene, collision); // pond colliders added inside (polygon)
-    collision.addCircle(0, 0, 2.4);   // fountain
-    collision.addCircle(7, -12, 0.9); // baobab
-    collision.addCircle(-11, 2, 2.1); // pyramid base
+    // collision.addCircle(0, 0, 2.4);   // fountain
+    // collision.addCircle(7, -12, 0.9); // baobab
+    // collision.addCircle(-11, 2, 2.1); // pyramid base
   }
 
   private createLights(scene: THREE.Scene): void {
@@ -186,6 +216,7 @@ export class World {
       const rotation = rngType() * Math.PI * 2;
       positions.push({ x, z, typeIdx, rotation });
       collision.addCircle(x, z, 0.5);
+      this.treeEntries.push({ x, z, shakePhase: { value: 0 } });
     }
 
     this.loadTreeModels(scene, positions);
@@ -200,7 +231,9 @@ export class World {
       const gltfs = await Promise.all(TREE_URLS.map(url => loader.loadAsync(url)));
       const roots  = gltfs.map(g => g.scene);
 
-      for (const { x, z, typeIdx, rotation } of positions) {
+      for (let i = 0; i < positions.length; i++) {
+        const { x, z, typeIdx, rotation } = positions[i];
+        const entry = this.treeEntries[i];
         const clone = roots[typeIdx].clone(true);
         clone.position.set(x, 0, z);
         clone.rotation.y = rotation;
@@ -209,6 +242,7 @@ export class World {
           if (!(child as THREE.Mesh).isMesh) return;
           child.castShadow    = true;
           child.receiveShadow = true;
+          this.applyTreeShake(child as THREE.Mesh, entry.shakePhase);
         });
         scene.add(clone);
       }
@@ -245,6 +279,58 @@ export class World {
     this.grassTime += delta;
     for (const u of this.grassTimeUniforms) u.value = this.grassTime;
     for (const u of this.cropTimeUniforms)  u.value = this.grassTime;
+    for (const entry of this.treeEntries) {
+      if (entry.shakePhase.value > 0) {
+        entry.shakePhase.value = Math.max(0, entry.shakePhase.value - delta);
+      }
+    }
+
+    // Spawn pending houses one by one with staggered delays
+    for (let i = this.pendingHouses.length - 1; i >= 0; i--) {
+      this.pendingHouses[i].delay -= delta;
+      if (this.pendingHouses[i].delay <= 0) {
+        const { x, z, glbUrl } = this.pendingHouses.splice(i, 1)[0];
+        this.animatedHouses.push(new House(this.scene, this.collision, x, z, glbUrl, true));
+      }
+    }
+
+    // Advance intro animations and remove completed ones
+    for (let i = this.animatedHouses.length - 1; i >= 0; i--) {
+      if (!this.animatedHouses[i].update(delta)) {
+        this.animatedHouses.splice(i, 1);
+      }
+    }
+  }
+
+  /**
+   * Vérifie si l'attaque (demi-cercle devant le joueur) touche des arbres,
+   * et déclenche leur shake si c'est le cas.
+   * @param px  position X du joueur
+   * @param pz  position Z du joueur
+   * @param facing  rotation Y du joueur (mesh.rotation.y)
+   */
+  private playWoodChop(): void {
+    const audio = new Audio(WOOD_CHOP_SFX);
+    audio.volume = 0.7;
+    audio.play().catch(() => { /* autoplay policy — silently ignore */ });
+  }
+
+  checkAttackHit(px: number, pz: number, facing: number): void {
+    const fx = Math.sin(facing);
+    const fz = Math.cos(facing);
+    for (const entry of this.treeEntries) {
+      const dx = entry.x - px;
+      const dz = entry.z - pz;
+      const distSq = dx * dx + dz * dz;
+      if (distSq > ATTACK_REACH * ATTACK_REACH || distSq < 0.001) continue;
+      const dist = Math.sqrt(distSq);
+      // Demi-cercle : l'arbre doit être devant le joueur (dot > 0 = angle < 90°)
+      if ((dx * fx + dz * fz) / dist > 0) {
+        entry.shakePhase.value = SHAKE_DURATION;
+        this.playWoodChop();
+        this.onTreeHit?.(entry.x, entry.z);
+      }
+    }
   }
 
   private async loadGrassModels(
@@ -452,6 +538,27 @@ export class World {
     mesh.material = mat;
   }
 
+  /**
+   * Shader de shake abrupt pour les arbres frappés.
+   * Inspiré du sway herbe, mais avec décroissance (shakePhase 0.8 → 0)
+   * et amplitude ~5x plus forte.
+   */
+  private applyTreeShake(mesh: THREE.Mesh, shakePhase: { value: number }): void {
+    const mat = (mesh.material as THREE.MeshStandardMaterial).clone();
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.shakePhase = shakePhase;
+      shader.vertexShader = 'uniform float shakePhase;\n' + shader.vertexShader;
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        float shake = sin(shakePhase * 20.0) * shakePhase * 0.15 * position.y;
+        transformed.x += shake;
+        transformed.z += shake * 0.4;`
+      );
+    };
+    mesh.material = mat;
+  }
+
   /** Fallback procédural (tronc + couronne) si les GLB ne chargent pas */
   private addProceduralTree(scene: THREE.Scene, x: number, z: number): void {
     const trunk = new THREE.Mesh(
@@ -471,9 +578,22 @@ export class World {
     scene.add(crown);
   }
 
-  private createHouses(scene: THREE.Scene, collision: CollisionSystem): void {
-    for (const { x, z, glbUrl } of HOUSE_POSITIONS) {
-      new House(scene, collision, x, z, glbUrl);
+  private createHouses(): void {
+    for (const pos of HOUSE_POSITIONS) {
+      if (pos.fountainLevel === 1) {
+        new House(this.scene, this.collision, pos.x, pos.z, pos.glbUrl);
+      }
+    }
+  }
+
+  /** Queue houses unlocked at the given fountain level for staggered animated spawn. */
+  setFountainLevel(level: number): void {
+    let i = 0;
+    for (const pos of HOUSE_POSITIONS) {
+      if (pos.fountainLevel === level) {
+        this.pendingHouses.push({ x: pos.x, z: pos.z, glbUrl: pos.glbUrl, delay: i * 0.7 });
+        i++;
+      }
     }
   }
 }

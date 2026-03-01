@@ -11,14 +11,24 @@ const TURN_SPEED = 10;
 const JUMP_FORCE = 8;
 const GRAVITY = -20;
 
-const CHARACTER_URL = new URL('../assets/GLB/character-male-f.glb', import.meta.url).href;
-const COLORMAP_URL = new URL('../assets/GLB/Textures/colormap.png', import.meta.url).href;
+const CHARACTER_URL    = new URL('../assets/GLB/character-male-f.glb', import.meta.url).href;
+const COLORMAP_URL     = new URL('../assets/GLB/Textures/colormap.png', import.meta.url).href;
+const FOOTSTEP_URL     = new URL('../assets/sound/sound_effect/footstep_grass.mp3', import.meta.url).href;
+const RUNNING_URL      = new URL('../assets/sound/sound_effect/running_grass.mp3',  import.meta.url).href;
 
 export class Player {
   readonly mesh: THREE.Group;
 
   private animator: PlayerAnimator | null = null;
-  private animState: 'idle' | 'walk' | 'sprint' | 'jump' = 'idle';
+  /** Appelé au déclenchement d'une attaque : (posX, posZ, facing) */
+  onAttack?: (px: number, pz: number, facing: number) => void;
+
+  private readonly walkAudio: HTMLAudioElement;
+  private readonly runAudio: HTMLAudioElement;
+  private activeFootstep: HTMLAudioElement | null = null;
+
+  private animState: 'idle' | 'walk' | 'sprint' | 'jump' | 'attack' = 'idle';
+  private isAttacking = false;
   private verticalVelocity = 0;
   private isGrounded = true;
 
@@ -33,6 +43,21 @@ export class Player {
     this.mesh.position.set(0, 0, 5); // spawn au sud de la fontaine
     scene.add(this.mesh);
     this.loadCharacter();
+
+    this.walkAudio = new Audio(FOOTSTEP_URL);
+    this.walkAudio.loop = true;
+    this.walkAudio.volume = 0.5;
+
+    this.runAudio = new Audio(RUNNING_URL);
+    this.runAudio.loop = true;
+    this.runAudio.volume = 0.6;
+  }
+
+  private setFootstep(audio: HTMLAudioElement | null): void {
+    if (this.activeFootstep === audio) return;
+    this.activeFootstep?.pause();
+    this.activeFootstep = audio;
+    audio?.play().catch(() => { /* autoplay policy */ });
   }
 
   private async loadCharacter(): Promise<void> {
@@ -105,6 +130,24 @@ export class Player {
     camera: THREE.Camera,
     collision: CollisionSystem
   ): void {
+    // --- Attaque (bloque tout mouvement) ---
+    if (input.consumeAttack() && !this.isAttacking) {
+      this.isAttacking = true;
+      this.animState = 'attack';
+      this.setFootstep(null);
+      this.onAttack?.(this.mesh.position.x, this.mesh.position.z, this.mesh.rotation.y);
+      this.animator?.playOnce('attack-melee-right', () => {
+        this.isAttacking = false;
+        this.animState = 'idle';
+        this.animator?.play('idle');
+      });
+    }
+
+    if (this.isAttacking) {
+      this.animator?.update(delta);
+      return;
+    }
+
     this.moveDir.set(0, 0, 0);
 
     camera.getWorldDirection(this.camForward);
@@ -141,6 +184,9 @@ export class Player {
     if (newState !== this.animState) {
       this.animState = newState;
       this.animator?.play(newState);
+      if (newState === 'walk')        this.setFootstep(this.walkAudio);
+      else if (newState === 'sprint') this.setFootstep(this.runAudio);
+      else                            this.setFootstep(null);
     }
 
     if (moving) {
@@ -157,5 +203,16 @@ export class Player {
     }
 
     this.animator?.update(delta);
+  }
+
+  triggerInteract(): void {
+    this.animator?.playOnce('interact-right', () => {
+      this.animState = 'idle';
+      this.animator?.play('idle');
+    });
+  }
+
+  destroy(): void {
+    this.setFootstep(null);
   }
 }

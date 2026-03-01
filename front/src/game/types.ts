@@ -14,8 +14,17 @@ export interface NPCInfo {
   voiceSettings?: VoiceSettings;
 }
 
+export interface InventoryItem {
+  id: string;
+  label: string;
+  count: number;
+}
+
 export interface GameCallbacks {
   onNPCNearby: (npc: NPCInfo | null) => void;
   onNPCInteract: (npc: NPCInfo) => void;
   onReady?: () => void;
+  onCoinCollected?: () => void;
+  onFountainNearby?: (near: boolean) => void;
+  onFountainInteract?: () => void;
 }

@@ -2,6 +2,7 @@ export class InputManager {
   private readonly keys = new Set<string>();
   private interactPressed = false;
   private jumpPressed = false;
+  private attackPressed = false;
   private paused = false;
 
   private readonly onKeyDown: (e: KeyboardEvent) => void;
@@ -13,6 +14,7 @@ export class InputManager {
       this.keys.add(e.code);
       if (e.code === 'KeyE') this.interactPressed = true;
       if (e.code === 'Space') this.jumpPressed = true;
+      if (e.code === 'KeyF') this.attackPressed = true;
     };
     this.onKeyUp = (e) => this.keys.delete(e.code);
     window.addEventListener('keydown', this.onKeyDown);
@@ -41,11 +43,20 @@ export class InputManager {
     return was;
   }
 
+  /** Returns true once per F keypress, then resets */
+  consumeAttack(): boolean {
+    if (this.paused) return false;
+    const was = this.attackPressed;
+    this.attackPressed = false;
+    return was;
+  }
+
   setPaused(paused: boolean): void {
     this.paused = paused;
     this.keys.clear();
     this.interactPressed = false;
     this.jumpPressed = false;
+    this.attackPressed = false;
   }
 
   destroy(): void {

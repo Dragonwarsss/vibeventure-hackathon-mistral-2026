@@ -11,13 +11,24 @@ interface Message {
 
 interface Props {
   npc: NPCInfo;
-  onClose: () => void;
+  /** Called with the number of messages the user typed (greeting excluded). */
+  onClose: (userMessageCount: number) => void;
 }
 
 const GREETING_TRIGGER = "[The player approaches you. Warmly greet them in English, introduce yourself and make them want to discover your culture. 1-2 sentences only.]";
 
 export function DialogueBox({ npc, onClose }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
+
+  // messagesRef stays current every render so Escape listener never has a stale count
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+
+  const handleClose = useCallback(() => {
+    const count = messagesRef.current.filter(m => m.role === 'user').length;
+    onClose(count);
+  }, [onClose]);
+
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
 
@@ -90,11 +101,11 @@ export function DialogueBox({ npc, onClose }: Props) {
   // Fermeture globale sur Escape (indépendamment du focus)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') handleClose();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
+  }, [handleClose]);
 
   // Dispose TTS only on final unmount — separate from streamResponse effect
   // to avoid StrictMode intermediate cleanup killing the greeting stream
@@ -139,7 +150,7 @@ export function DialogueBox({ npc, onClose }: Props) {
       e.preventDefault();
       handleSend();
     }
-    if (e.key === 'Escape') onClose();
+    if (e.key === 'Escape') handleClose();
   };
 
   return (
@@ -147,7 +158,7 @@ export function DialogueBox({ npc, onClose }: Props) {
       <div className="dialogue-box" onKeyDown={handleKeyDown}>
         <div className="dialogue-header">
           <span className="dialogue-npc-name">{npc.name}</span>
-          <button className="dialogue-close" onClick={onClose} aria-label="Close">
+          <button className="dialogue-close" onClick={handleClose} aria-label="Close">
             ✕
           </button>
         </div>
